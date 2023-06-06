@@ -1,0 +1,49 @@
+###do not forget to put #!/bin/bash at the beginning of the script file
+
+When dealing with variables, whether declaring and calling use double quotes ""
+
+#Passing a variable to a command can be done in two ways
+
+1-put the command inside "$()"
+wget "$(grep 'anything' | sed 'anything')"
+
+2-Assign a command output to a variable and then pass that output to another command
+var="$(grep 'anything' | sed 'anything')"
+wget "$var"
+
+#Anything before [while read] will be pumped into a declared variable
+and anything after read must be the declared variable   (that is, if no flags are used with the read command)
+like this
+while read var
+or 
+read -p "Enter a word: " word
+echo "You entered $word"
+
+#assigning a file or a directory to a variable in bash script The only spaces are allowed that if the path contains spaces. If a space was added outside the path, the script will fail
+search_path="/home/mint/Documents/touhou"
+files_list="/home/mint/Documents/filelist.txt"
+
+
+#Run a loop over each line in a file
+readarray -t files < $files_list          The files_list is transformed into an array with trailing newline from each line read and the result is saved to a new variable called "files"  
+for var in "${files[@]}"
+do
+  var                                the variable "var" is declared and is value changes over every iteration of the day
+done    
+
+Here is a useful example
+
+search_path='/home/mint/Documents/touhou'
+files_list='/home/mint/Documents/filelist.txt'
+readarray -t files < $files_list
+for file in "${files[@]}"
+do
+  if find "$search_path" -type f -iname "$(printf '%q' "$file")" -print -quit | grep -q .; then
+    echo "$(tput setaf 2)File $file found $(tput sgr0)"
+  else
+    echo "$(tput setaf 1)File $file not found! $(tput sgr0)"
+  fi
+done
+
+If a variable may contain character that need to be escaped, you must put the variable inside "$(printf '%q' "$")" like this
+"$(printf '%q' "$var")"
