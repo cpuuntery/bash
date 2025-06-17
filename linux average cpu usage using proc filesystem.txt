@@ -1,0 +1,116 @@
+#!/bin/bash
+SAMPLE_INTERVAL=1   # Seconds between samples
+DURATION=10         # Number of samples to take
+
+clk_tck=$(getconf CLK_TCK)
+
+# Use associative arrays to store previous CPU ticks, process commands, and accumulated deltas.
+declare -A prev_ticks
+declare -A commands
+declare -A delta_sum
+
+# A helper function to gather process data from /proc.
+read_process_stats() {
+    awk '{print $1, $2, $14, $15}' /proc/[0-9]*/stat 2>/dev/null
+}
+
+# Take the initial snapshot.
+while read pid comm utime stime; do
+    ticks=$((utime + stime))
+    prev_ticks["$pid"]=$ticks
+    commands["$pid"]=$comm
+    delta_sum["$pid"]=0
+done < <(read_process_stats)
+
+# Loop DURATION times, sampling every SAMPLE_INTERVAL seconds.
+for ((i = 1; i <= DURATION; i++)); do
+    sleep "$SAMPLE_INTERVAL"
+    while read pid comm utime stime; do
+        # Only update if the process was seen before.
+        if [[ -n "${prev_ticks[$pid]}" ]]; then
+            current_ticks=$((utime + stime))
+            delta=$((current_ticks - prev_ticks["$pid"]))
+            delta_sum["$pid"]=$((delta_sum["$pid"] + delta))
+            prev_ticks["$pid"]=$current_ticks
+        fi
+    done < <(read_process_stats)
+done
+
+# Calculate and print the average CPU usage for each process over the interval.
+# The total possible ticks for a process fully using one core is clk_tck * (DURATION * SAMPLE_INTERVAL).
+total_ticks=$((clk_tck * DURATION * SAMPLE_INTERVAL))
+# Print header (optional)
+echo "PID     CPU%  COMMAND"
+# Loop over each process from the initial snapshot and calculate the average CPU usage.
+for pid in "${!delta_sum[@]}"; do
+    cpu_percent=$(echo "scale=2; ${delta_sum["$pid"]}*100/${total_ticks}" | bc -l)
+    echo "$pid $cpu_percent ${commands["$pid"]}"
+done | sort -k2 -nr | column -t
+
+
+
+
+
+
+
+
+#!/bin/bash
+# Method 2: Integrating Process Lifecycle Awareness
+SAMPLE_INTERVAL=1
+DURATION=10
+clk_tck=$(getconf CLK_TCK)
+
+declare -A first_seen_time
+declare -A last_seen_time
+declare -A first_ticks
+declare -A last_ticks
+declare -A proc_cmd
+
+# Function to get the current time in seconds (with fractions).
+get_timestamp() {
+    date +%s.%N
+}
+
+start_time=$(get_timestamp)
+end_time=$(echo "$start_time + $DURATION" | bc -l)
+
+# Sample repeatedly during the observation interval.
+while (( $(echo "$(get_timestamp) < $end_time" | bc -l) )); do
+    current_time=$(get_timestamp)
+    while read -r pid comm utime stime; do
+        ticks=$((utime + stime))
+        # If process seen for the first time, record its initial timestamp and CPU ticks.
+        if [[ -z "${first_seen_time[$pid]}" ]]; then
+            first_seen_time["$pid"]=$current_time
+            first_ticks["$pid"]=$ticks
+            proc_cmd["$pid"]=$comm
+        fi
+        # Always update the last seen time and tick values.
+        last_seen_time["$pid"]=$current_time
+        last_ticks["$pid"]=$ticks
+    done < <(awk '{print $1, $2, $14, $15}' /proc/[0-9]*/stat 2>/dev/null)
+    sleep "$SAMPLE_INTERVAL"
+done
+
+# Now, for each process seen at any point, compute its effective CPU usage.
+# Print header (optional)
+echo "PID     CPU%  COMMAND"
+for pid in "${!first_seen_time[@]}"; do
+    if [[ -n "${last_seen_time[$pid]}" ]]; then
+        # Effective lifetime in seconds.
+        effective_time=$(echo "${last_seen_time[$pid]} - ${first_seen_time[$pid]}" | bc -l)
+        # Ensure that the process was alive for more than 0 seconds.
+        if (( $(echo "$effective_time > 0" | bc -l) )); then
+            delta_ticks=$(( last_ticks[$pid] - first_ticks[$pid] ))
+            usage=$(echo "scale=2; $delta_ticks*100/($clk_tck * $effective_time)" | bc -l)
+            echo "$pid $usage ${proc_cmd[$pid]}"
+        fi
+    fi
+done | sort -k2 -rn | column -t
+
+
+
+
+
+
+

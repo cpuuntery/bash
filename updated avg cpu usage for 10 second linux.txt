@@ -1,0 +1,49 @@
+#!/bin/bash
+# CONFIGURATION
+SAMPLE_INTERVAL=1   # seconds between samples
+DURATION=10         # the duration
+
+# 1) Collect & pipe raw data into awk
+{
+  for ((i=1; i<=DURATION; i++)); do
+    ps -eo comm,%cpu --no-headers
+    sleep "$SAMPLE_INTERVAL"
+  done
+} | 
+
+# 2) Aggregate & average in awk
+awk '
+  { sum[$1]+=$2; cnt[$1]++ }
+  END {
+    for (cmd in sum)
+      printf "%-20s %6.2f\n", cmd, sum[cmd]/cnt[cmd]}' | sort -k2 -nr > cpu_usage.log
+
+# 3) Show results
+cat cpu_usage.log
+
+
+
+#!/bin/bash
+# CONFIGURATION
+SAMPLE_INTERVAL=1   # seconds between samples
+DURATION=10         # the duration
+
+# 1) Collect raw data into a temp file
+tmpfile=$(mktemp)
+for ((i=1; i<=DURATION; i++)); do
+  ps -eo comm,%cpu --no-headers >>"$tmpfile"
+  sleep "$SAMPLE_INTERVAL"
+done
+
+# 2) Aggregate & average
+awk '
+  { sum[$1]+=$2; cnt[$1]++ }
+  END {
+    for (cmd in sum)
+      printf "%-20s %6.2f\n", cmd, sum[cmd]/cnt[cmd]
+  }
+' "$tmpfile" | sort -k2 -nr > cpu_usage.log
+
+# 3) Show results and clean up
+cat cpu_usage.log
+rm -f "$tmpfile"
